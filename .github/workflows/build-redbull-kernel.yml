@@ -1,0 +1,81 @@
+name: Build Redbull kernel
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - android-msm-redbull-4.19-android14-qpr3
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            bc \
+            bison \
+            clang \
+            device-tree-compiler \
+            flex \
+            gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi \
+            libelf-dev \
+            libssl-dev \
+            lld \
+            llvm \
+            pahole \
+            python3 \
+            rsync
+
+      - name: Configure kernel
+        run: |
+          make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            redbull_defconfig
+
+      - name: Build kernel, device trees, and modules
+        run: |
+          make -j"$(nproc)" O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
+            LLVM=1 LLVM_IAS=1 \
+            Image modules dtbs dtbo.img redfin.dtbo.img bramble.dtbo.img \
+            barbet.dtbo.img 2>&1 | tee "$GITHUB_WORKSPACE/out/build.log"
+
+      - name: Collect build outputs
+        if: always()
+        run: |
+          mkdir -p artifact
+          cp -f out/arch/arm64/boot/Image artifact/ 2>/dev/null || true
+          cp -f out/arch/arm64/boot/Image.gz artifact/ 2>/dev/null || true
+          cp -f out/arch/arm64/boot/Image.lz4 artifact/ 2>/dev/null || true
+          cp -f out/arch/arm64/boot/dtbo*.img artifact/ 2>/dev/null || true
+          cp -f out/System.map out/.config out/build.log artifact/ 2>/dev/null || true
+          if [ -d out/arch/arm64/boot/dts ]; then
+            mkdir -p artifact/dts
+            rsync -a --include='*.dtb' --include='*.dtbo' --exclude='*' \
+              out/arch/arm64/boot/dts/ artifact/dts/
+          fi
+          if find out -name '*.ko' -print -quit | grep -q .; then
+            mkdir -p artifact/modules
+            find out -name '*.ko' -exec cp --parents '{}' artifact/modules/ ';'
+          fi
+          printf 'commit=%s\n' "$GITHUB_SHA" > artifact/build-info.txt
+          printf 'runner=%s\n' "$RUNNER_OS" >> artifact/build-info.txt
+          printf 'config=redbull_defconfig\n' >> artifact/build-info.txt
+
+      - name: Upload kernel artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redbull-kernel-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14
