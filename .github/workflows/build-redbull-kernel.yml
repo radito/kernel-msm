@@ -42,6 +42,18 @@ jobs:
             python3 \
             rsync
 
+      - name: Install DTBO image tool
+        run: |
+          set -euo pipefail
+          libufdt="$RUNNER_TEMP/libufdt"
+          git init "$libufdt"
+          git -C "$libufdt" remote add origin https://android.googlesource.com/platform/system/libufdt
+          git -C "$libufdt" fetch --depth=1 origin \
+            131ee2db53ad7d9d4756555567894b01107cb26e
+          git -C "$libufdt" checkout --detach FETCH_HEAD
+          install -m 0755 "$libufdt/utils/src/mkdtboimg.py" "$RUNNER_TEMP/mkdtboimg.py"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
       - name: Restore compiler cache
         uses: actions/cache@v4
         with:
@@ -52,32 +64,46 @@ jobs:
 
       - name: Configure kernel
         run: |
-          make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+          set -euo pipefail
+          make O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
             redbull_defconfig
 
       - name: Build kernel, device trees, and modules
         run: |
+          set -euo pipefail
           ccache --max-size=2G
           make -j"$(nproc)" O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
-            LLVM=1 LLVM_IAS=1 CC='ccache clang' \
+            CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
+            CC='ccache clang' \
             Image modules dtbs dtbo.img dtbo_redfin.img dtbo_bramble.img \
             dtbo_barbet.img 2>&1 | tee "$GITHUB_WORKSPACE/out/build.log"
 
       - name: Collect build outputs
         if: always()
         run: |
+          set -euo pipefail
           mkdir -p artifact
-          cp -f out/arch/arm64/boot/Image artifact/ 2>/dev/null || true
-          cp -f out/arch/arm64/boot/Image.gz artifact/ 2>/dev/null || true
-          cp -f out/arch/arm64/boot/Image.lz4 artifact/ 2>/dev/null || true
-          cp -f out/arch/arm64/boot/dtbo*.img artifact/ 2>/dev/null || true
-          cp -f out/System.map out/.config out/build.log artifact/ 2>/dev/null || true
+          for output in \
+            out/arch/arm64/boot/Image \
+            out/arch/arm64/boot/Image.gz \
+            out/arch/arm64/boot/Image.lz4 \
+            out/arch/arm64/boot/dtbo*.img \
+            out/System.map \
+            out/.config \
+            out/build.log; do
+            for file in $output; do
+              if [ -f "$file" ]; then
+                cp -f "$file" artifact/
+              fi
+            done
+          done
           if [ -d out/arch/arm64/boot/dts ]; then
             mkdir -p artifact/dts
             rsync -a --include='*.dtb' --include='*.dtbo' --exclude='*' \
               out/arch/arm64/boot/dts/ artifact/dts/
           fi
-          if find out -name '*.ko' -print -quit | grep -q .; then
+          if [ -d out ] && find out -name '*.ko' -print -quit | grep -q .; then
             mkdir -p artifact/modules
             find out -name '*.ko' -exec cp --parents '{}' artifact/modules/ ';'
           fi
