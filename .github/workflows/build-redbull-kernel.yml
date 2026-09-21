@@ -2,6 +2,12 @@ name: Build Redbull kernel
 
 on:
   workflow_dispatch:
+    inputs:
+      build_device_trees:
+        description: Build Google DTBs and DTBO images (requires vendor/qcom DTS sources)
+        required: false
+        type: boolean
+        default: false
   push:
     branches:
       - android-msm-redbull-4.19-android14-qpr3
@@ -43,6 +49,7 @@ jobs:
             rsync
 
       - name: Install DTBO image tool
+        if: inputs.build_device_trees == true
         run: |
           set -euo pipefail
           libufdt="$RUNNER_TEMP/libufdt"
@@ -76,8 +83,19 @@ jobs:
           make -j"$(nproc)" O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
             CC='ccache clang' \
-            Image modules dtbs dtbo.img dtbo_redfin.img dtbo_bramble.img \
-            dtbo_barbet.img 2>&1 | tee "$GITHUB_WORKSPACE/out/build.log"
+            Image modules 2>&1 | tee "$GITHUB_WORKSPACE/out/build.log"
+          if [ "${{ inputs.build_device_trees }}" = "true" ]; then
+            test -e arch/arm64/boot/dts/google/qcom-base/lito-v2.dts || {
+              echo 'Missing arch/arm64/boot/dts/vendor/qcom DTS sources.' >&2
+              echo 'The tracked google/qcom-base symlink points to that absent directory.' >&2
+              exit 1
+            }
+            make -j"$(nproc)" O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
+              CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
+              CC='ccache clang' \
+              dtbs dtbo.img dtbo_redfin.img dtbo_bramble.img dtbo_barbet.img \
+              2>&1 | tee -a "$GITHUB_WORKSPACE/out/build.log"
+          fi
 
       - name: Collect build outputs
         if: always()
