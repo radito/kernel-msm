@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_COMPILERCHECK: content
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -24,6 +28,7 @@ jobs:
           sudo apt-get install --no-install-recommends -y \
             bc \
             bison \
+            ccache \
             clang \
             device-tree-compiler \
             flex \
@@ -37,6 +42,14 @@ jobs:
             python3 \
             rsync
 
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ runner.os }}-redbull-ccache-${{ hashFiles('Makefile', 'Kconfig', 'arch/arm64/configs/redbull_defconfig', 'build.config.redbull*') }}
+          restore-keys: |
+            ${{ runner.os }}-redbull-ccache-
+
       - name: Configure kernel
         run: |
           make O="$GITHUB_WORKSPACE/out" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
@@ -44,10 +57,11 @@ jobs:
 
       - name: Build kernel, device trees, and modules
         run: |
+          ccache --max-size=2G
           make -j"$(nproc)" O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
-            LLVM=1 LLVM_IAS=1 \
-            Image modules dtbs dtbo.img redfin.dtbo.img bramble.dtbo.img \
-            barbet.dtbo.img 2>&1 | tee "$GITHUB_WORKSPACE/out/build.log"
+            LLVM=1 LLVM_IAS=1 CC='ccache clang' \
+            Image modules dtbs dtbo.img dtbo_redfin.img dtbo_bramble.img \
+            dtbo_barbet.img 2>&1 | tee "$GITHUB_WORKSPACE/out/build.log"
 
       - name: Collect build outputs
         if: always()
