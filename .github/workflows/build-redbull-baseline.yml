@@ -82,6 +82,7 @@ jobs:
       - name: Repack boot image
         run: |
           set -euo pipefail
+          short_sha="$(git rev-parse --short=12 HEAD)"
           boot_tools="$RUNNER_TEMP/mkbootimg"
           avb_tools="$RUNNER_TEMP/avb"
           original_boot="$RUNNER_TEMP/boot_original.img"
@@ -133,8 +134,8 @@ jobs:
           test "$(stat -c '%s' "$RUNNER_TEMP/boot-payload.img")" = 100663296
 
           mkdir -p artifact
-          cp "$RUNNER_TEMP/boot-payload.img" artifact/boot_baseline.img
-          shasum -a 256 artifact/boot_baseline.img > artifact/boot_baseline.SHA256SUMS
+          cp "$RUNNER_TEMP/boot-payload.img" "artifact/boot_baseline-${short_sha}.img"
+          shasum -a 256 "artifact/boot_baseline-${short_sha}.img" > "artifact/boot_baseline-${short_sha}.SHA256SUMS"
 
       - name: Collect artifacts
         if: always()
