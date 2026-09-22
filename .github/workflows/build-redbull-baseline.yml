@@ -86,15 +86,12 @@ jobs:
           boot_tools="$RUNNER_TEMP/mkbootimg"
           avb_tools="$RUNNER_TEMP/avb"
           original_boot="$RUNNER_TEMP/boot_original.img"
-          original_sha256="$RUNNER_TEMP/boot_original.SHA256SUMS"
           original_url="https://github.com/radito/kernel-msm/releases/download/baseline/boot_original.img"
-          checksum_url="https://github.com/radito/kernel-msm/releases/download/baseline/boot_original.SHA256SUMS"
+          expected_sha256="bcf7449fbb88388359e50882ce2037d20d927ecd479a6155957ca272322782dd"
 
           git clone --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg "$boot_tools"
           git clone --depth 1 https://android.googlesource.com/platform/external/avb "$avb_tools"
           curl --fail --location --retry 3 "$original_url" -o "$original_boot"
-          curl --fail --location --retry 3 "$checksum_url" -o "$original_sha256"
-          expected_sha256="$(awk 'NR == 1 { print $1 }' "$original_sha256")"
           actual_sha256="$(shasum -a 256 "$original_boot" | awk '{ print $1 }')"
           test "$actual_sha256" = "$expected_sha256"
 
