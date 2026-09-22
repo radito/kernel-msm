@@ -3,6 +3,11 @@ name: Build Redbull kernel
 on:
   workflow_dispatch:
     inputs:
+      source_ref:
+        description: Kernel commit, branch, or tag to build
+        required: true
+        type: string
+        default: 7b0944645172
       build_device_trees:
         description: Build Google DTBs and DTBO images (requires vendor/qcom DTS sources)
         required: false
@@ -27,6 +32,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Install build dependencies
         run: |
@@ -72,6 +79,7 @@ jobs:
       - name: Configure kernel
         run: |
           set -euo pipefail
+          echo "Building source ref: ${{ inputs.source_ref || github.sha }}"
           make O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
             redbull_defconfig
@@ -83,7 +91,7 @@ jobs:
           make -j"$(nproc)" O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
             CC='ccache clang' \
-            Image modules 2>&1 | tee "$GITHUB_WORKSPACE/out/build.log"
+            Image Image.lz4 modules 2>&1 | tee "$GITHUB_WORKSPACE/out/build.log"
           if [ "${{ inputs.build_device_trees }}" = "true" ]; then
             test -e arch/arm64/boot/dts/google/qcom-base/lito-v2.dts || {
               echo 'Missing arch/arm64/boot/dts/vendor/qcom DTS sources.' >&2
