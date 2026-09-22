@@ -5,7 +5,8 @@ match_booting_redfin_config() {
   local config="${OUT_DIR}/.config"
 
   "${ROOT_DIR}/${KERNEL_DIR}/scripts/config" --file "${config}" \
-    -d INPUT_VD6281 -d DEBUG_FS -d USB_NET_CDC_EEM
+    -m INPUT_VD6281 -m CORESIGHT_PLACEHOLDER \
+    -m CORESIGHT_AMBA_PLACEHOLDER -d DEBUG_FS -d USB_NET_CDC_EEM
   (
     cd "${OUT_DIR}"
     make O="${OUT_DIR}" CLANG_TRIPLE="${CLANG_TRIPLE}" \
@@ -13,7 +14,9 @@ match_booting_redfin_config() {
       "${MAKE_ARGS[@]}" olddefconfig
   )
 
-  grep -Fqx '# CONFIG_INPUT_VD6281 is not set' "${config}"
+  grep -Fqx 'CONFIG_INPUT_VD6281=m' "${config}"
+  grep -Fqx 'CONFIG_CORESIGHT_PLACEHOLDER=m' "${config}"
+  grep -Fqx 'CONFIG_CORESIGHT_AMBA_PLACEHOLDER=m' "${config}"
   grep -Fqx '# CONFIG_DEBUG_FS is not set' "${config}"
   grep -Fqx '# CONFIG_USB_NET_CDC_EEM is not set' "${config}"
 }

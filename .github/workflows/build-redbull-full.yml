@@ -77,7 +77,9 @@ jobs:
           set -euo pipefail
           test -s "$REDBULL_ROOT/dist/Image.lz4"
           test -s "$REDBULL_ROOT/out/private/msm-google/Module.symvers"
-          for module in wlan.ko sec_touch.ko msm_drm.ko cam_sensor.ko; do
+          for module in wlan.ko sec_touch.ko msm_drm.ko cam_sensor.ko \
+                        vd6281_module.ko coresight-clk-placeholder.ko \
+                        coresight-clk-amba-placeholder.ko; do
             test -s "$REDBULL_ROOT/dist/$module" || {
               echo "Missing expected companion module: $module" >&2
               exit 1
@@ -85,7 +87,7 @@ jobs:
           done
           module_count="$(find "$REDBULL_ROOT/dist" -maxdepth 1 -name '*.ko' | wc -l)"
           echo "Built $module_count companion modules"
-          test "$module_count" -ge 300
+          test "$module_count" -ge 329
 
       - name: Collect build outputs
         if: always()
