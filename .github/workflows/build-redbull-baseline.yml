@@ -1,0 +1,111 @@
+name: Build Redbull baseline
+
+on:
+  push:
+    branches:
+      - baseline-redbull-dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_COMPILERCHECK: content
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            bc bison ccache curl device-tree-compiler flex \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libelf-dev \
+            libssl-dev lld pahole perl python3 rsync
+
+      - name: Install Android Clang r416183b
+        run: |
+          set -euo pipefail
+          clang_root="$GITHUB_WORKSPACE/prebuilts-master/clang/host/linux-x86/clang-r416183b"
+          mkdir -p "$clang_root"
+          curl --fail --location --retry 3 \
+            'https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz' \
+            | tar -xzf - -C "$clang_root"
+          echo "$clang_root/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$clang_root/lib64:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          PATH="$clang_root/bin:$PATH" LD_LIBRARY_PATH="$clang_root/lib64:${LD_LIBRARY_PATH:-}" clang --version
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ runner.os }}-redbull-baseline-ccache-${{ hashFiles('Makefile', 'Kconfig', 'arch/arm64/configs/redbull_defconfig') }}
+          restore-keys: |
+            ${{ runner.os }}-redbull-baseline-ccache-
+
+      - name: Configure exact booting baseline
+        run: |
+          set -euo pipefail
+          printf '%s\n' "-g$(git rev-parse --short=12 HEAD)-ab10812814" > .scmversion
+          make O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
+            redbull_defconfig
+          perl -0pi -e \
+            's/^CONFIG_INPUT_VD6281=m$/# CONFIG_INPUT_VD6281 is not set/m; \
+             s/^CONFIG_DEBUG_FS=y$/# CONFIG_DEBUG_FS is not set/m; \
+             s/^CONFIG_USB_NET_CDC_EEM=y$/# CONFIG_USB_NET_CDC_EEM is not set/m' \
+            "$GITHUB_WORKSPACE/out/.config"
+          make O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 olddefconfig
+          grep -Fqx '# CONFIG_INPUT_VD6281 is not set' out/.config
+          grep -Fqx '# CONFIG_DEBUG_FS is not set' out/.config
+          grep -Fqx '# CONFIG_USB_NET_CDC_EEM is not set' out/.config
+          grep -Fqx 'CONFIG_LTO_CLANG=y' out/.config
+          grep -Fqx 'CONFIG_MODVERSIONS=y' out/.config
+
+      - name: Build kernel and modules
+        run: |
+          set -euo pipefail
+          ccache --max-size=2G
+          make -j"$(nproc)" O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
+            CC='ccache clang' Image Image.lz4 modules 2>&1 \
+            | tee "$GITHUB_WORKSPACE/out/build.log"
+
+      - name: Collect artifacts
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          for file in \
+            out/arch/arm64/boot/Image \
+            out/arch/arm64/boot/Image.lz4 \
+            out/System.map \
+            out/Module.symvers \
+            out/.config \
+            out/build.log; do
+            [ -f "$file" ] && cp -f "$file" artifact/
+          done
+          if find out -name '*.ko' -print -quit | grep -q .; then
+            mkdir -p artifact/modules
+            find out -name '*.ko' -exec cp --parents '{}' artifact/modules/ ';'
+          fi
+          printf 'source_commit=%s\n' "$(git rev-parse HEAD)" > artifact/build-info.txt
+          printf 'kernel_release=%s\n' "$(make -s O=out kernelrelease)" >> artifact/build-info.txt
+          printf 'config=redbull_defconfig+booting-baseline-overlay\n' >> artifact/build-info.txt
+
+      - name: Upload baseline artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redbull-baseline-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14
