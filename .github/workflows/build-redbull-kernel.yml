@@ -82,7 +82,7 @@ jobs:
           echo "Building source ref: ${{ inputs.source_ref || github.sha }}"
           if [ "${{ inputs.source_ref || github.sha }}" = "7b0944645172" ] || \
              [ "${{ inputs.source_ref || github.sha }}" = "baseline-redbull-4.19.278" ]; then
-            perl -0pi -e 's/echo "\$res"\s*\z/echo "\$res-ab10812814"\n/' scripts/setlocalversion
+            printf '%s\n' "-g$(git rev-parse --short=12 HEAD)-ab10812814" > .scmversion
           else
             true
           fi
@@ -103,7 +103,7 @@ jobs:
           set -euo pipefail
           if [ "${{ inputs.source_ref || github.sha }}" = "7b0944645172" ] || \
              [ "${{ inputs.source_ref || github.sha }}" = "baseline-redbull-4.19.278" ]; then
-            perl -0pi -e 's/echo "\$res"\s*\z/echo "\$res-ab10812814"\n/' scripts/setlocalversion
+            printf '%s\n' "-g$(git rev-parse --short=12 HEAD)-ab10812814" > .scmversion
           fi
           ccache --max-size=2G
           make -j"$(nproc)" O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
