@@ -3,8 +3,8 @@
  * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  */
 
-#ifndef __UAPI_CAM_SENSOR_H__
-#define __UAPI_CAM_SENSOR_H__
+#ifndef _UAPI_LINUX_VD6281_H
+#define _UAPI_LINUX_VD6281_H
 
 #include <linux/ioctl.h>
 #include <linux/types.h>

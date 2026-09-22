@@ -30,7 +30,7 @@
 #include <linux/pinctrl/consumer.h>
 #include <linux/clk.h>
 #include <linux/of_gpio.h>
-#include <media/cam_sensor.h>
+#include <linux/vd6281.h>
 
 
 #define VD6281_DEV_NAME	"vd6281"
