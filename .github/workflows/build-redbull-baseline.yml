@@ -79,6 +79,63 @@ jobs:
             CC='ccache clang' Image Image.lz4 modules 2>&1 \
             | tee "$GITHUB_WORKSPACE/out/build.log"
 
+      - name: Repack boot image
+        run: |
+          set -euo pipefail
+          boot_tools="$RUNNER_TEMP/mkbootimg"
+          avb_tools="$RUNNER_TEMP/avb"
+          original_boot="$RUNNER_TEMP/boot_original.img"
+          original_sha256="$RUNNER_TEMP/boot_original.SHA256SUMS"
+          original_url="https://github.com/radito/kernel-msm/releases/download/baseline/boot_original.img"
+          checksum_url="https://github.com/radito/kernel-msm/releases/download/baseline/boot_original.SHA256SUMS"
+
+          git clone --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg "$boot_tools"
+          git clone --depth 1 https://android.googlesource.com/platform/external/avb "$avb_tools"
+          curl --fail --location --retry 3 "$original_url" -o "$original_boot"
+          curl --fail --location --retry 3 "$checksum_url" -o "$original_sha256"
+          expected_sha256="$(awk 'NR == 1 { print $1 }' "$original_sha256")"
+          actual_sha256="$(shasum -a 256 "$original_boot" | awk '{ print $1 }')"
+          test "$actual_sha256" = "$expected_sha256"
+
+          original_unpack="$RUNNER_TEMP/original-unpack"
+          verify_unpack="$RUNNER_TEMP/verify-unpack"
+          mkdir -p "$original_unpack" "$verify_unpack"
+          python3 "$boot_tools/unpack_bootimg.py" \
+            --boot_img "$original_boot" \
+            --out "$original_unpack" \
+            --format=mkbootimg
+
+          python3 "$boot_tools/mkbootimg.py" \
+            --header_version 3 \
+            --os_version 14.0.0 \
+            --os_patch_level 2023-11 \
+            --kernel out/arch/arm64/boot/Image.lz4 \
+            --ramdisk "$original_unpack/ramdisk" \
+            --cmdline '' \
+            --output "$RUNNER_TEMP/boot-payload.img"
+
+          python3 "$avb_tools/avbtool.py" add_hash_footer \
+            --image "$RUNNER_TEMP/boot-payload.img" \
+            --partition_name boot \
+            --partition_size 0x06000000 \
+            --key "$avb_tools/test/data/testkey_rsa4096.pem" \
+            --algorithm SHA256_RSA4096 \
+            --prop 'com.android.build.boot.os_version:14' \
+            --prop 'com.android.build.boot.fingerprint:google/redfin/redfin:14/UP1A.231105.001/10817346:user/release-keys' \
+            --prop 'com.android.build.boot.security_patch:2023-11-05'
+
+          python3 "$boot_tools/unpack_bootimg.py" \
+            --boot_img "$RUNNER_TEMP/boot-payload.img" \
+            --out "$verify_unpack" \
+            --format=mkbootimg
+          cmp out/arch/arm64/boot/Image.lz4 "$verify_unpack/kernel"
+          cmp "$original_unpack/ramdisk" "$verify_unpack/ramdisk"
+          test "$(stat -c '%s' "$RUNNER_TEMP/boot-payload.img")" = 100663296
+
+          mkdir -p artifact
+          cp "$RUNNER_TEMP/boot-payload.img" artifact/boot_baseline.img
+          shasum -a 256 artifact/boot_baseline.img > artifact/boot_baseline.SHA256SUMS
+
       - name: Collect artifacts
         if: always()
         run: |
