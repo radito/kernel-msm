@@ -87,6 +87,10 @@ jobs:
       - name: Build kernel, device trees, and modules
         run: |
           set -euo pipefail
+          if [ "${{ inputs.source_ref || github.sha }}" = "7b0944645172" ]; then
+            perl -0pi -e 's/^\s*#include <media\/cam_sensor\.h>\s*\n//m' \
+              drivers/input/misc/vd6281/vd6281_module.c
+          fi
           ccache --max-size=2G
           make -j"$(nproc)" O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
