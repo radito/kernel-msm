@@ -107,6 +107,8 @@ jobs:
              [ "${{ inputs.source_ref || github.sha }}" = "baseline-redbull-4.19.278" ]; then
             perl -0pi -e 's/^CONFIG_INPUT_VD6281=m$/# CONFIG_INPUT_VD6281 is not set/m' \
               "$GITHUB_WORKSPACE/out/.config"
+            perl -0pi -e 's/^CONFIG_DEBUG_FS=y$/# CONFIG_DEBUG_FS is not set/m' \
+              "$GITHUB_WORKSPACE/out/.config"
             make O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
               CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
               olddefconfig
@@ -157,6 +159,9 @@ jobs:
               fi
             done
           done
+          if [ -f out/.config ]; then
+            cp -f out/.config artifact/kernel.config
+          fi
           if [ -d out/arch/arm64/boot/dts ]; then
             mkdir -p artifact/dts
             rsync -a --include='*.dtb' --include='*.dtbo' --exclude='*' \
