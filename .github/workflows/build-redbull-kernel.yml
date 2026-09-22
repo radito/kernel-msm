@@ -82,13 +82,12 @@ jobs:
           echo "Building source ref: ${{ inputs.source_ref || github.sha }}"
           if [ "${{ inputs.source_ref || github.sha }}" = "7b0944645172" ] || \
              [ "${{ inputs.source_ref || github.sha }}" = "baseline-redbull-4.19.278" ]; then
-            export KERNEL_LOCALVERSION=-ab10812814
+            perl -0pi -e 's/echo "\$res"\s*\z/echo "\$res-ab10812814"\n/' scripts/setlocalversion
           else
-            export KERNEL_LOCALVERSION=
+            true
           fi
           make O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
-            LOCALVERSION="$KERNEL_LOCALVERSION" \
             redbull_defconfig
           if [ "${{ inputs.source_ref || github.sha }}" = "7b0944645172" ] || \
              [ "${{ inputs.source_ref || github.sha }}" = "baseline-redbull-4.19.278" ]; then
@@ -96,7 +95,6 @@ jobs:
               "$GITHUB_WORKSPACE/out/.config"
             make O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
               CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
-              LOCALVERSION="$KERNEL_LOCALVERSION" \
               olddefconfig
           fi
 
@@ -105,15 +103,12 @@ jobs:
           set -euo pipefail
           if [ "${{ inputs.source_ref || github.sha }}" = "7b0944645172" ] || \
              [ "${{ inputs.source_ref || github.sha }}" = "baseline-redbull-4.19.278" ]; then
-            export KERNEL_LOCALVERSION=-ab10812814
-          else
-            export KERNEL_LOCALVERSION=
+            perl -0pi -e 's/echo "\$res"\s*\z/echo "\$res-ab10812814"\n/' scripts/setlocalversion
           fi
           ccache --max-size=2G
           make -j"$(nproc)" O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
             CC='ccache clang' \
-            LOCALVERSION="${KERNEL_LOCALVERSION:-}" \
             Image Image.lz4 modules 2>&1 | tee "$GITHUB_WORKSPACE/out/build.log"
           if [ "${{ inputs.build_device_trees }}" = "true" ]; then
             test -e arch/arm64/boot/dts/google/qcom-base/lito-v2.dts || {
@@ -124,7 +119,6 @@ jobs:
             make -j"$(nproc)" O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
               CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
               CC='ccache clang' \
-              LOCALVERSION="${KERNEL_LOCALVERSION:-}" \
               dtbs dtbo.img dtbo_redfin.img dtbo_bramble.img dtbo_barbet.img \
               2>&1 | tee -a "$GITHUB_WORKSPACE/out/build.log"
           fi
