@@ -112,6 +112,17 @@ jobs:
             make O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
               CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
               olddefconfig
+          else
+            # Keep the current branch's boot-relevant config aligned with the
+            # baseline that boots with the installed redfin vendor modules.
+            perl -0pi -e 's/^CONFIG_INPUT_VD6281=m$/# CONFIG_INPUT_VD6281 is not set/m; s/^CONFIG_DEBUG_FS=y$/# CONFIG_DEBUG_FS is not set/m; s/^CONFIG_USB_NET_CDC_EEM=y$/# CONFIG_USB_NET_CDC_EEM is not set/m' \
+              "$GITHUB_WORKSPACE/out/.config"
+            make O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
+              CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
+              olddefconfig
+            grep -Fqx '# CONFIG_INPUT_VD6281 is not set' "$GITHUB_WORKSPACE/out/.config"
+            grep -Fqx '# CONFIG_DEBUG_FS is not set' "$GITHUB_WORKSPACE/out/.config"
+            grep -Fqx '# CONFIG_USB_NET_CDC_EEM is not set' "$GITHUB_WORKSPACE/out/.config"
           fi
 
       - name: Build kernel, device trees, and modules
@@ -171,7 +182,8 @@ jobs:
             mkdir -p artifact/modules
             find out -name '*.ko' -exec cp --parents '{}' artifact/modules/ ';'
           fi
-          printf 'commit=%s\n' "$GITHUB_SHA" > artifact/build-info.txt
+          printf 'commit=%s\n' "$(git rev-parse HEAD)" > artifact/build-info.txt
+          printf 'kernel_release=%s\n' "$(make -s O="$GITHUB_WORKSPACE/out" ARCH=arm64 kernelrelease)" >> artifact/build-info.txt
           printf 'runner=%s\n' "$RUNNER_OS" >> artifact/build-info.txt
           printf 'config=redbull_defconfig\n' >> artifact/build-info.txt
 
@@ -179,7 +191,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: redbull-kernel-${{ github.sha }}
+          name: redbull-kernel-${{ github.sha }}-${{ github.run_id }}
           path: artifact/
           if-no-files-found: error
           retention-days: 14
