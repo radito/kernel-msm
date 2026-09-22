@@ -43,6 +43,7 @@ jobs:
             bison \
             ccache \
             clang \
+            curl \
             device-tree-compiler \
             flex \
             gcc-aarch64-linux-gnu \
@@ -54,6 +55,19 @@ jobs:
             pahole \
             python3 \
             rsync
+
+      - name: Install Android Clang r416183b
+        run: |
+          set -euo pipefail
+          clang_root="$GITHUB_WORKSPACE/prebuilts-master/clang/host/linux-x86/clang-r416183b"
+          mkdir -p "$clang_root"
+          curl --fail --location --retry 3 \
+            'https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz' \
+            | tar -xzf - -C "$clang_root"
+          echo "$clang_root/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$clang_root/lib64:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          PATH="$clang_root/bin:$PATH" LD_LIBRARY_PATH="$clang_root/lib64:${LD_LIBRARY_PATH:-}" \
+            clang --version
 
       - name: Install DTBO image tool
         if: inputs.build_device_trees == true
