@@ -1,0 +1,21 @@
+# Keep the QPR3 build configuration aligned with the baseline that boots on
+# the existing redfin vendor image. The main config defines both functions
+# called before this one.
+match_booting_redfin_config() {
+  local config="${OUT_DIR}/.config"
+
+  "${ROOT_DIR}/${KERNEL_DIR}/scripts/config" --file "${config}" \
+    -d INPUT_VD6281 -d DEBUG_FS -d USB_NET_CDC_EEM
+  (
+    cd "${OUT_DIR}"
+    make O="${OUT_DIR}" CLANG_TRIPLE="${CLANG_TRIPLE}" \
+      CROSS_COMPILE="${CROSS_COMPILE}" "${TOOL_ARGS[@]}" \
+      "${MAKE_ARGS[@]}" olddefconfig
+  )
+
+  grep -Fqx '# CONFIG_INPUT_VD6281 is not set' "${config}"
+  grep -Fqx '# CONFIG_DEBUG_FS is not set' "${config}"
+  grep -Fqx '# CONFIG_USB_NET_CDC_EEM is not set' "${config}"
+}
+
+POST_DEFCONFIG_CMDS='check_defconfig && update_nocfi_config && match_booting_redfin_config'

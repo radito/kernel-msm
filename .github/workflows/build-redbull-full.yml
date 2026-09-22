@@ -1,0 +1,140 @@
+name: Build Redbull full kernel and modules
+
+on:
+  push:
+    branches:
+      - android-msm-redbull-4.19-android14-qpr3
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Commit, branch, or tag from this repository to build
+        required: false
+        type: string
+        default: android-msm-redbull-4.19-android14-qpr3
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    env:
+      REDBULL_ROOT: ${{ github.workspace }}/redbull
+      SOURCE_REF: ${{ inputs.source_ref || github.sha }}
+
+    steps:
+      - name: Install host dependencies and repo
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            bc bison ccache cpio curl device-tree-compiler flex kmod \
+            libelf-dev libssl-dev lz4 python3 rsync unzip zip
+          mkdir -p "$RUNNER_TEMP/repo-bin"
+          curl --fail --location --retry 3 \
+            https://storage.googleapis.com/git-repo-downloads/repo \
+            --output "$RUNNER_TEMP/repo-bin/repo"
+          chmod 0755 "$RUNNER_TEMP/repo-bin/repo"
+          echo "$RUNNER_TEMP/repo-bin" >> "$GITHUB_PATH"
+
+      - name: Sync complete redbull source manifest
+        run: |
+          set -euo pipefail
+          git config --global user.name 'Redbull CI'
+          git config --global user.email 'redbull-ci@users.noreply.github.com'
+          mkdir -p "$REDBULL_ROOT"
+          cd "$REDBULL_ROOT"
+          repo init --depth=1 -g default,partner \
+            -u https://android.googlesource.com/kernel/manifest \
+            -b android-msm-redbull-4.19-android14-qpr3
+          repo sync -c --no-tags --no-clone-bundle -j4
+
+      - name: Check out requested kernel source
+        run: |
+          set -euo pipefail
+          kernel_dir="$REDBULL_ROOT/private/msm-google"
+          git -C "$kernel_dir" remote add user \
+            "https://github.com/${{ github.repository }}.git"
+          git -C "$kernel_dir" fetch --no-tags --depth=1 user "$SOURCE_REF"
+          git -C "$kernel_dir" checkout --detach FETCH_HEAD
+          test -f "$kernel_dir/.github/build-config/redbull-baseline.fragment"
+          git -C "$kernel_dir" log -1 --format='Building %H %s'
+
+      - name: Build kernel and companion modules
+        run: |
+          set -euo pipefail
+          cd "$REDBULL_ROOT"
+          export OUT_DIR="$REDBULL_ROOT/out"
+          export DIST_DIR="$REDBULL_ROOT/dist"
+          export BUILD_CONFIG=private/msm-google/build.config.redbull.no-cfi
+          export BUILD_CONFIG_FRAGMENTS=private/msm-google/.github/build-config/redbull-baseline.fragment
+          export MAKE_GOALS='Image.lz4-dtb modules dtbo.img dtbo_bramble.img dtbo_redfin.img dtbo_barbet.img'
+          bash build/build.sh -j"$(nproc)" 2>&1 | tee "$GITHUB_WORKSPACE/redbull-full-build.log"
+
+      - name: Verify module coverage
+        run: |
+          set -euo pipefail
+          test -s "$REDBULL_ROOT/dist/Image.lz4"
+          test -s "$REDBULL_ROOT/out/private/msm-google/Module.symvers"
+          for module in wlan.ko sec_touch.ko msm_drm.ko cam_sensor.ko; do
+            test -s "$REDBULL_ROOT/dist/$module" || {
+              echo "Missing expected companion module: $module" >&2
+              exit 1
+            }
+          done
+          module_count="$(find "$REDBULL_ROOT/dist" -maxdepth 1 -name '*.ko' | wc -l)"
+          echo "Built $module_count companion modules"
+          test "$module_count" -ge 300
+
+      - name: Collect build outputs
+        if: always()
+        run: |
+          set -euo pipefail
+          artifact="$GITHUB_WORKSPACE/artifact"
+          mkdir -p "$artifact/modules"
+          if [ -d "$REDBULL_ROOT/dist" ]; then
+            for file in "$REDBULL_ROOT"/dist/Image* \
+                        "$REDBULL_ROOT"/dist/dtbo*.img \
+                        "$REDBULL_ROOT"/dist/initramfs.img \
+                        "$REDBULL_ROOT"/dist/modules.load; do
+              if [ -f "$file" ]; then cp "$file" "$artifact/"; fi
+            done
+            find "$REDBULL_ROOT/dist" -maxdepth 1 -type f -name '*.ko' \
+              -exec cp '{}' "$artifact/modules/" ';'
+          fi
+          kernel_out="$REDBULL_ROOT/out/private/msm-google"
+          if [ -f "$kernel_out/Module.symvers" ]; then
+            cp "$kernel_out/Module.symvers" "$artifact/"
+          fi
+          if [ -f "$kernel_out/.config" ]; then
+            cp "$kernel_out/.config" "$artifact/kernel.config"
+          fi
+          if [ -f "$GITHUB_WORKSPACE/redbull-full-build.log" ]; then
+            cp "$GITHUB_WORKSPACE/redbull-full-build.log" "$artifact/build.log"
+          fi
+          if [ -d "$REDBULL_ROOT/.repo" ]; then
+            (cd "$REDBULL_ROOT" && repo manifest -r -o "$artifact/manifest.xml")
+          fi
+          if [ -d "$REDBULL_ROOT/private/msm-google/.git" ] || \
+             [ -f "$REDBULL_ROOT/private/msm-google/.git" ]; then
+            printf 'source_commit=%s\n' \
+              "$(git -C "$REDBULL_ROOT/private/msm-google" rev-parse HEAD)" \
+              > "$artifact/build-info.txt"
+          fi
+          if [ -f "$kernel_out/include/config/kernel.release" ]; then
+            printf 'kernel_release=%s\n' \
+              "$(cat "$kernel_out/include/config/kernel.release")" \
+              >> "$artifact/build-info.txt"
+          fi
+          printf 'manifest_branch=%s\n' android-msm-redbull-4.19-android14-qpr3 \
+            >> "$artifact/build-info.txt"
+
+      - name: Upload kernel and modules
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redbull-full-${{ github.sha }}-${{ github.run_id }}
+          path: artifact/
+          if-no-files-found: warn
+          retention-days: 14

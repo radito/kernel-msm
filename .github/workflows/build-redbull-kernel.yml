@@ -1,4 +1,4 @@
-name: Build Redbull kernel
+name: Build Redbull core kernel
 
 on:
   workflow_dispatch:
@@ -13,10 +13,6 @@ on:
         required: false
         type: boolean
         default: false
-  push:
-    branches:
-      - android-msm-redbull-4.19-android14-qpr3
-
 permissions:
   contents: read
 
