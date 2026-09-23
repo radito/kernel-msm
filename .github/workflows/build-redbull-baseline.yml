@@ -77,6 +77,8 @@ jobs:
           grep -Fqx 'CONFIG_KSU=y' out/.config
           grep -Fqx 'CONFIG_KSU_MANUAL_HOOK=y' out/.config
           grep -Fqx '# CONFIG_KPROBES is not set' out/.config
+          grep -Fq 'KernelSU compatibility probe marker' include/linux/seccomp.h
+          ! grep -Eq '^[[:space:]]*atomic_t filter_count;' include/linux/seccomp.h
           test "$(git -C KernelSU-Next rev-parse HEAD)" = \
             '9b08e88862000d5c50fb2e43a5b75123cf472e54'
 
@@ -94,6 +96,8 @@ jobs:
           grep -Fq -- "KernelSU-Next version: $KSU_VERSION_CODE" out/build.log
           grep -Fq -- "KernelSU-Next tag: $KSU_VERSION_TAG" out/build.log
           grep -Fq -- 'KernelSU-Next: Hook mode: Manual' out/build.log
+          ! grep -Fq -- 'KSU_NEXT: patching struct seccomp for filter_count' out/build.log
+          ! grep -Eq '^[[:space:]]*atomic_t filter_count;' include/linux/seccomp.h
           grep -Eq ' [Tt] kernelsu_init$' out/System.map
           grep -Eq ' [Tt] ksu_handle_sys_reboot$' out/System.map
 
@@ -176,6 +180,7 @@ jobs:
           printf 'kernelsu_commit=%s\n' "$(git -C KernelSU-Next rev-parse HEAD)" >> artifact/build-info.txt
           printf 'kernelsu_version=%s\n' "$KSU_VERSION_CODE" >> artifact/build-info.txt
           printf 'kernelsu_tag=%s\n' "$KSU_VERSION_TAG" >> artifact/build-info.txt
+          printf 'kernelsu_seccomp_filter_count_backport=disabled\n' >> artifact/build-info.txt
 
       - name: Upload baseline artifacts
         if: always()

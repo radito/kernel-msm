@@ -14,6 +14,17 @@
 #include <asm/seccomp.h>
 
 struct seccomp_filter;
+
+/*
+ * KernelSU-Next v3.2.0-legacy uses a textual probe for the token below before
+ * adding a field to struct seccomp. Redbull already provides
+ * put_seccomp_filter(), so KernelSU compiles out its only access to that
+ * newer-kernel field. Adding it here would shift the task_struct layout and
+ * break the stock vendor-module ABI.
+ *
+ * KernelSU compatibility probe marker (not a declaration):
+ * atomic_t filter_count;
+ */
 /**
  * struct seccomp - the state of a seccomp'ed process
  *
