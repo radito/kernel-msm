@@ -12,6 +12,9 @@ permissions:
 env:
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_COMPILERCHECK: content
+  KSU_REV_COUNT: "2979"
+  KSU_VERSION_CODE: "33129"
+  KSU_VERSION_TAG: "v3.2.0-legacy"
 
 jobs:
   build:
@@ -21,6 +24,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install build dependencies
         run: |
@@ -69,6 +74,11 @@ jobs:
           grep -Fqx '# CONFIG_USB_NET_CDC_EEM is not set' out/.config
           grep -Fqx 'CONFIG_LTO_CLANG=y' out/.config
           grep -Fqx 'CONFIG_MODVERSIONS=y' out/.config
+          grep -Fqx 'CONFIG_KSU=y' out/.config
+          grep -Fqx 'CONFIG_KSU_MANUAL_HOOK=y' out/.config
+          grep -Fqx '# CONFIG_KPROBES is not set' out/.config
+          test "$(git -C KernelSU-Next rev-parse HEAD)" = \
+            '9b08e88862000d5c50fb2e43a5b75123cf472e54'
 
       - name: Build kernel and modules
         run: |
@@ -76,8 +86,16 @@ jobs:
           ccache --max-size=2G
           make -j"$(nproc)" O="$GITHUB_WORKSPACE/out" ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 \
-            CC='ccache clang' Image Image.lz4 modules 2>&1 \
+            CC='ccache clang' \
+            KSU_GIT_VERSION="$KSU_REV_COUNT" \
+            KSU_GIT_TAG="$KSU_VERSION_TAG" \
+            Image Image.lz4 modules 2>&1 \
             | tee "$GITHUB_WORKSPACE/out/build.log"
+          grep -Fq -- "KernelSU-Next version: $KSU_VERSION_CODE" out/build.log
+          grep -Fq -- "KernelSU-Next tag: $KSU_VERSION_TAG" out/build.log
+          grep -Fq -- 'KernelSU-Next: Hook mode: Manual' out/build.log
+          grep -Eq ' [Tt] kernelsu_init$' out/System.map
+          grep -Eq ' [Tt] ksu_handle_sys_reboot$' out/System.map
 
       - name: Repack boot image
         run: |
@@ -154,7 +172,10 @@ jobs:
           fi
           printf 'source_commit=%s\n' "$(git rev-parse HEAD)" > artifact/build-info.txt
           printf 'kernel_release=%s\n' "$(make -s O=out kernelrelease)" >> artifact/build-info.txt
-          printf 'config=redbull_defconfig+booting-baseline-overlay\n' >> artifact/build-info.txt
+          printf 'config=redbull_defconfig+booting-baseline-overlay+ksunext-v3.2.0-legacy-manual\n' >> artifact/build-info.txt
+          printf 'kernelsu_commit=%s\n' "$(git -C KernelSU-Next rev-parse HEAD)" >> artifact/build-info.txt
+          printf 'kernelsu_version=%s\n' "$KSU_VERSION_CODE" >> artifact/build-info.txt
+          printf 'kernelsu_tag=%s\n' "$KSU_VERSION_TAG" >> artifact/build-info.txt
 
       - name: Upload baseline artifacts
         if: always()
