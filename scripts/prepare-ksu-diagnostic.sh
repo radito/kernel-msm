@@ -2,11 +2,11 @@
 
 set -euo pipefail
 
-variant="${1:?usage: $0 <diag-link-only|diag-init-only>}"
+variant="${1:?usage: $0 <diag-link-only|diag-init-only|diag-backports-only>}"
 baseline_commit="ded58d27f72c79d67e634d4e11d71c93245dc99f"
 
 case "$variant" in
-  diag-link-only|diag-init-only)
+  diag-link-only|diag-init-only|diag-backports-only)
     ;;
   *)
     echo "unsupported diagnostic variant: $variant" >&2
@@ -57,10 +57,29 @@ if [[ "$variant" == "diag-link-only" ]]; then
   grep -Fq "$marker" "$init_file"
 fi
 
+if [[ "$variant" == "diag-backports-only" ]]; then
+  kbuild_file="KernelSU-Next/kernel/Kbuild"
+  marker="CI diagnostic: KernelSU objects not linked"
+
+  perl -0pi -e \
+    's/^obj-\$\(CONFIG_KSU\) \+= kernelsu\.o$/# CI diagnostic: KernelSU objects not linked/m' \
+    "$kbuild_file"
+  grep -Fq "$marker" "$kbuild_file"
+fi
+
 printf 'diagnostic_variant=%s\n' "$variant"
 printf 'manual_hook_calls=disabled\n'
-if [[ "$variant" == "diag-link-only" ]]; then
-  printf 'kernelsu_init=disabled\n'
-else
-  printf 'kernelsu_init=enabled\n'
-fi
+case "$variant" in
+  diag-link-only)
+    printf 'kernelsu_objects=linked\n'
+    printf 'kernelsu_init=disabled\n'
+    ;;
+  diag-init-only)
+    printf 'kernelsu_objects=linked\n'
+    printf 'kernelsu_init=enabled\n'
+    ;;
+  diag-backports-only)
+    printf 'kernelsu_objects=not-linked\n'
+    printf 'kernelsu_init=not-linked\n'
+    ;;
+esac
