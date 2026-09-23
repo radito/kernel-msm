@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: ${{ fromJSON(github.event_name == 'push' && '["diag-backports-only"]' || '["diag-link-only","diag-init-only","diag-backports-only"]') }}
+        variant: ${{ fromJSON(github.event_name == 'push' && '["diag-backports-no-seccomp"]' || '["diag-link-only","diag-init-only","diag-backports-only","diag-backports-no-seccomp"]') }}
 
     steps:
       - name: Check out source
@@ -88,13 +88,20 @@ jobs:
           make -j"$(nproc)" O="$GITHUB_WORKSPACE/out" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 CC='ccache clang' HAVE_KSU_HOOK=0 KSU_GIT_VERSION="$KSU_REV_COUNT" KSU_GIT_TAG="$KSU_VERSION_TAG" Image Image.lz4 modules 2>&1 | tee "$GITHUB_WORKSPACE/out/build.log"
           grep -Fq -- "KernelSU-Next version: $KSU_VERSION_CODE" out/build.log
           grep -Fq -- "KernelSU-Next tag: $KSU_VERSION_TAG" out/build.log
-          if [ "${{ matrix.variant }}" = 'diag-backports-only' ]; then
-            grep -Fq -- "KSU_NEXT: adding function 'int path_umount" out/build.log
-            ! grep -Eq ' [Tt] kernelsu_init$' out/System.map
-            ! grep -Eq ' [Tt] ksu_handle_sys_reboot$' out/System.map
-          else
-            grep -Eq ' [Tt] kernelsu_init$' out/System.map
-            grep -Eq ' [Tt] ksu_handle_sys_reboot$' out/System.map
+          case "${{ matrix.variant }}" in
+            diag-backports-*)
+              grep -Fq -- "KSU_NEXT: adding function 'int path_umount" out/build.log
+              grep -Fq -- 'KSU_NEXT: patching selinux/hooks.c for selinux_inode' out/build.log
+              ! grep -Eq ' [Tt] kernelsu_init$' out/System.map
+              ! grep -Eq ' [Tt] ksu_handle_sys_reboot$' out/System.map
+              ;;
+            *)
+              grep -Eq ' [Tt] kernelsu_init$' out/System.map
+              grep -Eq ' [Tt] ksu_handle_sys_reboot$' out/System.map
+              ;;
+          esac
+          if [ "${{ matrix.variant }}" = 'diag-backports-no-seccomp' ]; then
+            ! grep -Fq -- 'KSU_NEXT: patching struct seccomp for filter_count' out/build.log
           fi
 
       - name: Repack diagnostic boot image

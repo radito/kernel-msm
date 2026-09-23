@@ -2,11 +2,11 @@
 
 set -euo pipefail
 
-variant="${1:?usage: $0 <diag-link-only|diag-init-only|diag-backports-only>}"
+variant="${1:?usage: $0 <diag-link-only|diag-init-only|diag-backports-only|diag-backports-no-seccomp>}"
 baseline_commit="ded58d27f72c79d67e634d4e11d71c93245dc99f"
 
 case "$variant" in
-  diag-link-only|diag-init-only|diag-backports-only)
+  diag-link-only|diag-init-only|diag-backports-only|diag-backports-no-seccomp)
     ;;
   *)
     echo "unsupported diagnostic variant: $variant" >&2
@@ -57,7 +57,7 @@ if [[ "$variant" == "diag-link-only" ]]; then
   grep -Fq "$marker" "$init_file"
 fi
 
-if [[ "$variant" == "diag-backports-only" ]]; then
+if [[ "$variant" == diag-backports-* ]]; then
   kbuild_file="KernelSU-Next/kernel/Kbuild"
   marker="CI diagnostic: KernelSU objects not linked"
 
@@ -65,6 +65,16 @@ if [[ "$variant" == "diag-backports-only" ]]; then
     's/^obj-\$\(CONFIG_KSU\) \+= kernelsu\.o$/# CI diagnostic: KernelSU objects not linked/m' \
     "$kbuild_file"
   grep -Fq "$marker" "$kbuild_file"
+fi
+
+if [[ "$variant" == "diag-backports-no-seccomp" ]]; then
+  seccomp_file="include/linux/seccomp.h"
+  marker="CI diagnostic marker: atomic_t filter_count;"
+
+  perl -0pi -e \
+    's{(#endif /\* _LINUX_SECCOMP_H \*/)}{/* CI diagnostic marker: atomic_t filter_count; */\n$1}' \
+    "$seccomp_file"
+  grep -Fq "$marker" "$seccomp_file"
 fi
 
 printf 'diagnostic_variant=%s\n' "$variant"
@@ -81,5 +91,11 @@ case "$variant" in
   diag-backports-only)
     printf 'kernelsu_objects=not-linked\n'
     printf 'kernelsu_init=not-linked\n'
+    printf 'seccomp_backport=enabled\n'
+    ;;
+  diag-backports-no-seccomp)
+    printf 'kernelsu_objects=not-linked\n'
+    printf 'kernelsu_init=not-linked\n'
+    printf 'seccomp_backport=disabled\n'
     ;;
 esac
