@@ -1,0 +1,163 @@
+name: Diagnose Redbull KernelSU isolation
+
+on:
+  push:
+    branches:
+      - baseline-redbull-dev
+    paths:
+      - .github/workflows/diagnose-redbull-kernelsu.yml
+      - scripts/prepare-ksu-diagnostic.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_COMPILERCHECK: content
+  KSU_REV_COUNT: "2979"
+  KSU_VERSION_CODE: "33129"
+  KSU_VERSION_TAG: "v3.2.0-legacy"
+
+jobs:
+  build:
+    name: ${{ matrix.variant }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - diag-link-only
+          - diag-init-only
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Prepare diagnostic isolation
+        run: |
+          set -euo pipefail
+          bash scripts/prepare-ksu-diagnostic.sh "${{ matrix.variant }}" | tee "$RUNNER_TEMP/diagnostic-info.txt"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y bc bison ccache curl device-tree-compiler flex gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libelf-dev libssl-dev lld pahole perl python3 rsync
+
+      - name: Install Android Clang r416183b
+        run: |
+          set -euo pipefail
+          clang_root="$GITHUB_WORKSPACE/prebuilts-master/clang/host/linux-x86/clang-r416183b"
+          mkdir -p "$clang_root"
+          curl --fail --location --retry 3 'https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz' | tar -xzf - -C "$clang_root"
+          echo "$clang_root/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$clang_root/lib64:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          PATH="$clang_root/bin:$PATH" LD_LIBRARY_PATH="$clang_root/lib64:${LD_LIBRARY_PATH:-}" clang --version
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ runner.os }}-redbull-${{ matrix.variant }}-ccache-${{ hashFiles('Makefile', 'Kconfig', 'arch/arm64/configs/redbull_defconfig') }}
+          restore-keys: |
+            ${{ runner.os }}-redbull-baseline-ccache-
+
+      - name: Configure diagnostic kernel
+        run: |
+          set -euo pipefail
+          printf '%s\n' "-g$(git rev-parse --short=12 HEAD)-ab10812814-${{ matrix.variant }}" > .scmversion
+          make O="$GITHUB_WORKSPACE/out" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 redbull_defconfig
+          perl -0pi -e 's/^CONFIG_INPUT_VD6281=m$/# CONFIG_INPUT_VD6281 is not set/m; s/^CONFIG_DEBUG_FS=y$/# CONFIG_DEBUG_FS is not set/m; s/^CONFIG_USB_NET_CDC_EEM=y$/# CONFIG_USB_NET_CDC_EEM is not set/m' "$GITHUB_WORKSPACE/out/.config"
+          make O="$GITHUB_WORKSPACE/out" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 olddefconfig
+          grep -Fqx '# CONFIG_INPUT_VD6281 is not set' out/.config
+          grep -Fqx '# CONFIG_DEBUG_FS is not set' out/.config
+          grep -Fqx '# CONFIG_USB_NET_CDC_EEM is not set' out/.config
+          grep -Fqx 'CONFIG_LTO_CLANG=y' out/.config
+          grep -Fqx 'CONFIG_MODVERSIONS=y' out/.config
+          grep -Fqx 'CONFIG_KSU=y' out/.config
+          grep -Fqx 'CONFIG_KSU_MANUAL_HOOK=y' out/.config
+          grep -Fqx '# CONFIG_KPROBES is not set' out/.config
+          test "$(git -C KernelSU-Next rev-parse HEAD)" = '9b08e88862000d5c50fb2e43a5b75123cf472e54'
+
+      - name: Build diagnostic kernel and modules
+        run: |
+          set -euo pipefail
+          ccache --max-size=2G
+          make -j"$(nproc)" O="$GITHUB_WORKSPACE/out" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 CC='ccache clang' HAVE_KSU_HOOK=0 KSU_GIT_VERSION="$KSU_REV_COUNT" KSU_GIT_TAG="$KSU_VERSION_TAG" Image Image.lz4 modules 2>&1 | tee "$GITHUB_WORKSPACE/out/build.log"
+          grep -Fq -- "KernelSU-Next version: $KSU_VERSION_CODE" out/build.log
+          grep -Fq -- "KernelSU-Next tag: $KSU_VERSION_TAG" out/build.log
+          grep -Eq ' [Tt] kernelsu_init$' out/System.map
+          grep -Eq ' [Tt] ksu_handle_sys_reboot$' out/System.map
+
+      - name: Repack diagnostic boot image
+        run: |
+          set -euo pipefail
+          variant="${{ matrix.variant }}"
+          short_sha="$(git rev-parse --short=12 HEAD)"
+          boot_tools="$RUNNER_TEMP/mkbootimg"
+          avb_tools="$RUNNER_TEMP/avb"
+          original_boot="$RUNNER_TEMP/boot_original.img"
+          original_url="https://github.com/radito/kernel-msm/releases/download/baseline/boot_original.img"
+          expected_sha256="bcf7449fbb88388359e50882ce2037d20d927ecd479a6155957ca272322782dd"
+
+          git clone --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg "$boot_tools"
+          git clone --depth 1 https://android.googlesource.com/platform/external/avb "$avb_tools"
+          curl --fail --location --retry 3 "$original_url" -o "$original_boot"
+          actual_sha256="$(shasum -a 256 "$original_boot" | awk '{ print $1 }')"
+          test "$actual_sha256" = "$expected_sha256"
+
+          original_unpack="$RUNNER_TEMP/original-unpack"
+          verify_unpack="$RUNNER_TEMP/verify-unpack"
+          mkdir -p "$original_unpack" "$verify_unpack"
+          python3 "$boot_tools/unpack_bootimg.py" --boot_img "$original_boot" --out "$original_unpack" --format=mkbootimg
+
+          python3 "$boot_tools/mkbootimg.py" --header_version 3 --os_version 14.0.0 --os_patch_level 2023-11 --kernel out/arch/arm64/boot/Image.lz4 --ramdisk "$original_unpack/ramdisk" --cmdline '' --output "$RUNNER_TEMP/boot-payload.img"
+
+          python3 "$avb_tools/avbtool.py" add_hash_footer --image "$RUNNER_TEMP/boot-payload.img" --partition_name boot --partition_size 0x06000000 --key "$avb_tools/test/data/testkey_rsa4096.pem" --algorithm SHA256_RSA4096 --prop 'com.android.build.boot.os_version:14' --prop 'com.android.build.boot.fingerprint:google/redfin/redfin:14/UP1A.231105.001/10817346:user/release-keys' --prop 'com.android.build.boot.security_patch:2023-11-05'
+
+          python3 "$boot_tools/unpack_bootimg.py" --boot_img "$RUNNER_TEMP/boot-payload.img" --out "$verify_unpack" --format=mkbootimg
+          cmp out/arch/arm64/boot/Image.lz4 "$verify_unpack/kernel"
+          cmp "$original_unpack/ramdisk" "$verify_unpack/ramdisk"
+          test "$(stat -c '%s' "$RUNNER_TEMP/boot-payload.img")" = 100663296
+
+          mkdir -p artifact
+          image_name="boot_${variant}-${short_sha}.img"
+          cp "$RUNNER_TEMP/boot-payload.img" "artifact/$image_name"
+          shasum -a 256 "artifact/$image_name" > "artifact/${image_name%.img}.SHA256SUMS"
+
+      - name: Collect diagnostic artifacts
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          for file in out/arch/arm64/boot/Image out/arch/arm64/boot/Image.lz4 out/System.map out/Module.symvers out/.config out/build.log; do
+            [ -f "$file" ] && cp -f "$file" artifact/
+          done
+          if find out -name '*.ko' -print -quit 2>/dev/null | grep -q .; then
+            mkdir -p artifact/modules
+            find out -name '*.ko' -exec cp --parents '{}' artifact/modules/ ';'
+          fi
+          cp -f "$RUNNER_TEMP/diagnostic-info.txt" artifact/
+          printf 'source_commit=%s\n' "$(git rev-parse HEAD)" > artifact/build-info.txt
+          kernel_release="$(make -s O=out kernelrelease 2>/dev/null || true)"
+          if [ -n "$kernel_release" ]; then
+            printf 'kernel_release=%s\n' "$kernel_release" >> artifact/build-info.txt
+          fi
+          printf 'diagnostic_variant=%s\n' "${{ matrix.variant }}" >> artifact/build-info.txt
+          printf 'manual_hook_calls=disabled\n' >> artifact/build-info.txt
+          printf 'config=redbull_defconfig+booting-baseline-overlay+ksunext-v3.2.0-legacy-diagnostic\n' >> artifact/build-info.txt
+          printf 'kernelsu_commit=%s\n' "$(git -C KernelSU-Next rev-parse HEAD)" >> artifact/build-info.txt
+          printf 'kernelsu_version=%s\n' "$KSU_VERSION_CODE" >> artifact/build-info.txt
+          printf 'kernelsu_tag=%s\n' "$KSU_VERSION_TAG" >> artifact/build-info.txt
+
+      - name: Upload diagnostic artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redbull-${{ matrix.variant }}-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14
