@@ -81,6 +81,13 @@ jobs:
           ! grep -Eq '^[[:space:]]*atomic_t filter_count;' include/linux/seccomp.h
           test "$(git -C KernelSU-Next rev-parse HEAD)" = \
             '9b08e88862000d5c50fb2e43a5b75123cf472e54'
+          grep -Fq 'ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);' fs/exec.c
+          grep -Fq 'ksu_handle_faccessat(&dfd, &filename, &mode, NULL);' fs/open.c
+          grep -Fq 'ksu_handle_stat(&dfd, &filename, &flags);' fs/stat.c
+          grep -Fq 'ksu_handle_vfs_read(&file, &buf, &count, &pos);' fs/read_write.c
+          grep -Fq 'ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);' kernel/reboot.c
+          grep -Fq 'ksu_handle_input_handle_event(&type, &code, &value);' drivers/input/input.c
+          grep -Fq 'ksu_handle_slow_avc_audit(&tsid);' security/selinux/avc.c
 
       - name: Build kernel and modules
         run: |
@@ -99,7 +106,13 @@ jobs:
           ! grep -Fq -- 'KSU_NEXT: patching struct seccomp for filter_count' out/build.log
           ! grep -Eq '^[[:space:]]*atomic_t filter_count;' include/linux/seccomp.h
           grep -Eq ' [Tt] kernelsu_init$' out/System.map
+          grep -Eq ' [Tt] ksu_handle_execveat$' out/System.map
+          grep -Eq ' [Tt] ksu_handle_faccessat$' out/System.map
+          grep -Eq ' [Tt] ksu_handle_stat$' out/System.map
+          grep -Eq ' [Tt] ksu_handle_vfs_read$' out/System.map
           grep -Eq ' [Tt] ksu_handle_sys_reboot$' out/System.map
+          grep -Eq ' [Tt] ksu_handle_input_handle_event$' out/System.map
+          grep -Eq ' [Tt] ksu_handle_slow_avc_audit$' out/System.map
 
       - name: Repack boot image
         run: |
@@ -166,10 +179,10 @@ jobs:
             out/arch/arm64/boot/Image.lz4 \
             out/System.map \
             out/Module.symvers \
-            out/.config \
             out/build.log; do
             [ -f "$file" ] && cp -f "$file" artifact/
           done
+          [ -f out/.config ] && cp -f out/.config artifact/kernel.config
           if find out -name '*.ko' -print -quit | grep -q .; then
             mkdir -p artifact/modules
             find out -name '*.ko' -exec cp --parents '{}' artifact/modules/ ';'
@@ -180,6 +193,8 @@ jobs:
           printf 'kernelsu_commit=%s\n' "$(git -C KernelSU-Next rev-parse HEAD)" >> artifact/build-info.txt
           printf 'kernelsu_version=%s\n' "$KSU_VERSION_CODE" >> artifact/build-info.txt
           printf 'kernelsu_tag=%s\n' "$KSU_VERSION_TAG" >> artifact/build-info.txt
+          printf 'kernelsu_manual_hooks=execveat,faccessat,stat,vfs_read,reboot,input,slow_avc_audit\n' >> artifact/build-info.txt
+          printf 'kernelsu_avc_spoof_hook=manual\n' >> artifact/build-info.txt
           printf 'kernelsu_seccomp_filter_count_backport=disabled\n' >> artifact/build-info.txt
 
       - name: Upload baseline artifacts
