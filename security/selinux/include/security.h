@@ -116,6 +116,29 @@ void selinux_avc_init(struct selinux_avc **avc);
 
 extern struct selinux_state selinux_state;
 
+#ifdef CONFIG_KSU
+void ksu_hide_snapshot(struct selinux_state *state, const void *data, size_t len);
+struct selinux_state *ksu_hide_app_state(struct selinux_state *state);
+struct page *ksu_hide_app_status_page(struct page *status);
+int ksu_hide_check_setprocattr(const char *name, const void *value, size_t size);
+#else
+static inline void ksu_hide_snapshot(struct selinux_state *state,
+				     const void *data, size_t len) { }
+static inline struct selinux_state *ksu_hide_app_state(struct selinux_state *state)
+{
+	return state;
+}
+static inline struct page *ksu_hide_app_status_page(struct page *status)
+{
+	return status;
+}
+static inline int ksu_hide_check_setprocattr(const char *name,
+					     const void *value, size_t size)
+{
+	return 0;
+}
+#endif
+
 #ifdef CONFIG_SECURITY_SELINUX_DEVELOP
 static inline bool enforcing_enabled(struct selinux_state *state)
 {

@@ -237,6 +237,7 @@ static ssize_t sel_read_handle_status(struct file *filp, char __user *buf,
 	struct page    *status = filp->private_data;
 
 	BUG_ON(!status);
+	status = ksu_hide_app_status_page(status);
 
 	return simple_read_from_buffer(buf, count, ppos,
 				       page_address(status),
@@ -250,6 +251,7 @@ static int sel_mmap_handle_status(struct file *filp,
 	unsigned long	size = vma->vm_end - vma->vm_start;
 
 	BUG_ON(!status);
+	status = ksu_hide_app_status_page(status);
 
 	/* only allows one page from the head */
 	if (vma->vm_pgoff > 0 || size != PAGE_SIZE)
@@ -604,6 +606,7 @@ static ssize_t sel_write_context(struct file *file, char *buf, size_t size)
 	if (length)
 		goto out;
 
+	state = ksu_hide_app_state(state);
 	length = security_context_to_sid(state, buf, size, &sid, GFP_KERNEL);
 	if (length)
 		goto out;
@@ -826,6 +829,7 @@ static ssize_t sel_write_access(struct file *file, char *buf, size_t size)
 	if (length)
 		goto out;
 
+	state = ksu_hide_app_state(state);
 	length = -ENOMEM;
 	scon = kzalloc(size + 1, GFP_KERNEL);
 	if (!scon)

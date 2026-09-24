@@ -6543,6 +6543,9 @@ static int selinux_setprocattr(const char *name, void *value, size_t size)
 			str[size-1] = 0;
 			size--;
 		}
+		error = ksu_hide_check_setprocattr(name, value, size);
+		if (error)
+			return error;
 		error = security_context_to_sid(&selinux_state, value, size,
 						&sid, GFP_KERNEL);
 		if (error == -EINVAL && !strcmp(name, "fscreate")) {

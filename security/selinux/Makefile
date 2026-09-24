@@ -15,8 +15,10 @@ selinux-$(CONFIG_SECURITY_NETWORK_XFRM) += xfrm.o
 selinux-$(CONFIG_NETLABEL) += netlabel.o
 
 selinux-$(CONFIG_SECURITY_INFINIBAND) += ibpkey.o
+selinux-$(CONFIG_KSU) += ksu_hide.o
 
 ccflags-y := -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include
+ccflags-$(CONFIG_KSU) += -I$(srctree)/KernelSU-Next/kernel -I$(srctree)/KernelSU-Next
 
 $(addprefix $(obj)/,$(selinux-y)): $(obj)/flask.h
 

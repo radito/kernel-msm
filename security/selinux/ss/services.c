@@ -2285,6 +2285,8 @@ err:
 	policydb_destroy(newpolicydb);
 
 out:
+	if (!rc && state == &selinux_state)
+		ksu_hide_snapshot(state, data, len);
 	kfree(oldpolicydb);
 	return rc;
 }

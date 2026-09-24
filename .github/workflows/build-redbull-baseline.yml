@@ -113,6 +113,8 @@ jobs:
           grep -Eq ' [Tt] ksu_handle_sys_reboot$' out/System.map
           grep -Eq ' [Tt] ksu_handle_input_handle_event$' out/System.map
           grep -Eq ' [Tt] ksu_handle_slow_avc_audit$' out/System.map
+          grep -aFq 'selinux_hide' out/vmlinux
+          grep -aFq 'clean SELinux policy snapshot ready' out/vmlinux
 
       - name: Repack boot image
         run: |
